@@ -13,6 +13,9 @@ use vulkano::command_buffer::CopyImageToBufferInfo;
 
 mod vk_utils;
 mod buffer;
+mod vk_pipeline;
+
+use crate::vk_pipeline::Pipeline;
 
 mod vs {
     vulkano_shaders::shader!{
@@ -54,7 +57,7 @@ struct FVertex2d {
 
 fn main() {
     // Initialization // 
-    let vk = vk_utils::VK;
+    let mut vk = vk_utils::VK;
     let vs = vs::load(vk.device.clone()).expect("failed to create shader module");
     let fs = fs::load(vk.device.clone()).expect("failed to create shader module");
 
@@ -82,91 +85,8 @@ fn main() {
     let image = vk.image([1024, 1024, 1]);
     let image_buffer = vk.buf_iter((0..1024 * 1024 * 4).map(|_| 0u8));
 
-    let viewport = Viewport {
-        offset: [0.0, 0.0],
-        extent: [1024.0, 1024.0],
-        depth_range: 0.0..=1.0,
-    };
-
-    let render_pass = vulkano::single_pass_renderpass!(
-        vk.device.clone(),
-        attachments: {
-            color: {
-                format: Format::R8G8B8A8_UNORM,
-                samples: 1,
-                load_op: Clear,
-                store_op: Store,
-            },
-        },
-        pass: {
-            color: [color],
-            depth_stencil: {},
-        },
-    )
-    .unwrap();
-
-    let pipeline = {
-        let vs = vs.entry_point("main").unwrap();
-        let fs = fs.entry_point("main").unwrap();
-
-        let vertex_input_state = FVertex2d::per_vertex()
-            .definition(&vs.info().input_interface)
-            .unwrap();
-
-        let stages = [
-            PipelineShaderStageCreateInfo::new(vs),
-            PipelineShaderStageCreateInfo::new(fs),
-        ];
-
-        let layout = PipelineLayout::new(
-            vk.device.clone(),
-            PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
-                .into_pipeline_layout_create_info(vk.device.clone())
-                .unwrap(),
-        )
-        .unwrap();
-
-        let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
-
-        GraphicsPipeline::new(
-            vk.device.clone(),
-            None,
-            GraphicsPipelineCreateInfo {
-                // The stages of our pipeline, we have vertex and fragment stages.
-                stages: stages.into_iter().collect(),
-                // Describes the layout of the vertex input and how should it behave.
-                vertex_input_state: Some(vertex_input_state),
-                // Indicate the type of the primitives (the default is a list of triangles).
-                input_assembly_state: Some(InputAssemblyState::default()),
-                // Set the fixed viewport.
-                viewport_state: Some(ViewportState {
-                    viewports: [viewport].into_iter().collect(),
-                    ..Default::default()
-                }),
-                // Ignore these for now.
-                rasterization_state: Some(vulkano::pipeline::graphics::rasterization::RasterizationState::default()),
-                multisample_state: Some(vulkano::pipeline::graphics::multisample::MultisampleState::default()),
-                color_blend_state: Some(vulkano::pipeline::graphics::color_blend::ColorBlendState::with_attachment_states(
-                    subpass.num_color_attachments(),
-                    vulkano::pipeline::graphics::color_blend::ColorBlendAttachmentState::default(),
-                )),
-                // This graphics pipeline object concerns the first pass of the render pass.
-                subpass: Some(subpass.into()),
-                ..GraphicsPipelineCreateInfo::layout(layout)
-            },
-        )
-        .unwrap()
-    };
-    
-    let view = ImageView::new_default(image.clone()).unwrap();
-    let framebuffer = Framebuffer::new(
-        render_pass.clone(),
-        FramebufferCreateInfo {
-            attachments: vec![view],
-            ..Default::default()
-        },
-    )
-    .unwrap();
+    let vk_pipeline = vk.pipeline(vs, fs);
+    let framebuffer = vk.framebuffer_from_image(image.clone(), vk_pipeline.clone());
 
     let mut builder = vk.builder();
     builder
@@ -182,13 +102,12 @@ fn main() {
         )
         .unwrap()
 
-        // new stuff
-        .bind_pipeline_graphics(pipeline.clone())
+        .bind_pipeline_graphics(vk_pipeline.lock().unwrap().pipeline.clone())
         .unwrap()
         .bind_vertex_buffers(0, vertex_buffer.clone())
         .unwrap()
         .draw(
-            3, 1, 0, 0, // 3 is the number of vertices, 1 is the number of instances
+            3, 1, 0, 0, 
         )
         .unwrap()
         .end_render_pass(vulkano::command_buffer::SubpassEndInfo::default())
@@ -207,28 +126,4 @@ fn main() {
 
     println!("succeed!");
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

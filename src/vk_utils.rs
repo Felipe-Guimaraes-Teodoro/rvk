@@ -27,6 +27,8 @@ pub struct Vk {
     pub memory_allocator: Arc<GenericMemoryAllocator<FreeListAllocator>>,
     pub command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
     pub descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+
+    pub resolution: [f32; 2],
 }
 
 impl Vk {
@@ -85,6 +87,7 @@ impl Vk {
             memory_allocator,
             command_buffer_allocator,
             descriptor_set_allocator,
+            resolution: [1024.0, 1024.0],
         }
     }
 
