@@ -46,7 +46,8 @@ impl vk_utils::Vk {
                 format: Format::R8G8B8A8_UNORM,
                 extent: dim,
                 usage: ImageUsage::TRANSFER_DST 
-                    | ImageUsage::TRANSFER_SRC 
+                    | ImageUsage::COLOR_ATTACHMENT
+                    | ImageUsage::TRANSFER_SRC
                     | ImageUsage::STORAGE,
                 ..Default::default()
             },

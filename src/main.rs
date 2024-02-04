@@ -1,134 +1,234 @@
-// initialization
-
-use vulkano::buffer::{Buffer, BufferCreateInfo, BufferUsage};
-use vulkano::memory::allocator::{AllocationCreateInfo, MemoryTypeFilter};
-use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer};
-
-// syncing
-use vulkano::sync::{self, GpuFuture};
-
-// image creation 
-use vulkano::image::{Image, ImageCreateInfo, ImageUsage};
+use vulkano::buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage};
 use vulkano::format::Format;
-use vulkano::command_buffer::ClearColorImageInfo;
-use vulkano::format::ClearColorValue;
-use vulkano::command_buffer::CopyImageToBufferInfo;
-
-use vulkano::pipeline::compute::ComputePipelineCreateInfo;
-use vulkano::pipeline::layout::PipelineDescriptorSetLayoutCreateInfo;
-use vulkano::pipeline::{
-    ComputePipeline, Pipeline, PipelineBindPoint, PipelineLayout, PipelineShaderStageCreateInfo,
-};
-
 use vulkano::image::view::ImageView;
+use vulkano::memory::allocator::{AllocationCreateInfo, MemoryTypeFilter};
+use vulkano::pipeline::graphics::input_assembly::InputAssemblyState;
+use vulkano::pipeline::graphics::vertex_input::{Vertex, VertexDefinition};
+use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
+use vulkano::pipeline::graphics::GraphicsPipelineCreateInfo;
+use vulkano::pipeline::layout::PipelineDescriptorSetLayoutCreateInfo;
+use vulkano::pipeline::{GraphicsPipeline, PipelineLayout, PipelineShaderStageCreateInfo};
+use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, Subpass};
+use vulkano::command_buffer::CopyImageToBufferInfo;
 
 mod vk_utils;
 mod buffer;
 
-mod compute_shader {
+mod vs {
     vulkano_shaders::shader!{
-        ty: "compute",
-        src: r#"
+        ty: "vertex",
+        src: r"
             #version 460
 
-            layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
-
-            layout (set = 0, binding = 0, rgba8) uniform writeonly image2D img;
+            layout(location = 0) in vec2 position;
 
             void main() {
-                vec2 norm_coordinates = (gl_GlobalInvocationID.xy + vec2(0.5)) / vec2(imageSize(img));
-                float zoom = 1.5;
-                vec2 pos = vec2(1.0, 0.0);
-                vec2 c = (norm_coordinates - vec2(0.5)) * 1.0 / zoom - pos;
-
-                vec2 z = vec2(0.0, 0.0);
-                float i;
-                for (i = 0.0; i < 1.0; i += 0.005) {
-                    z = vec2(
-                        z.x * z.x - z.y * z.y + c.x,
-                        z.y * z.x + z.x * z.y + c.y
-                    );
-
-                    if (length(z) > 4.0) {
-                        break;
-                    }
-                }
-
-                vec4 to_write = vec4(vec3(i), 1.0);
-                imageStore(img, ivec2(gl_GlobalInvocationID.xy), to_write);
+                gl_Position = vec4(position, 0.0, 1.0);
             }
-        "#,
+        ",
     }
+}
+
+mod fs {
+    vulkano_shaders::shader!{
+        ty: "fragment",
+        src: "
+            #version 460
+
+            layout(location = 0) out vec4 f_color;
+
+            void main() {
+                f_color = vec4(1.0, 0.0, 0.0, 1.0);
+            }
+        ",
+    }
+}
+
+
+#[repr(C)]
+#[derive(BufferContents, Vertex)]
+struct FVertex2d {
+    #[format(R32G32_SFLOAT)]
+    position: [f32; 2],
 }
 
 fn main() {
     // Initialization // 
     let vk = vk_utils::VK;
-    let device = &vk.device;
-    let queue = &vk.queue;
-    let memory_allocator = &vk.memory_allocator;
+    let vs = vs::load(vk.device.clone()).expect("failed to create shader module");
+    let fs = fs::load(vk.device.clone()).expect("failed to create shader module");
 
-    let shader = compute_shader::load(device.clone()).expect("failed to create shader module");
+    let verts = vec![
+        FVertex2d { position: [-0.5, -0.5 ] }, 
+        FVertex2d { position: [0.0, 0.5 ] }, 
+        FVertex2d { position: [0.5, -0.25 ] }, 
+    ];
 
-    let cs = shader.entry_point("main").unwrap();
-    let stage = PipelineShaderStageCreateInfo::new(cs);
-    let layout = PipelineLayout::new(
-        device.clone(),
-        PipelineDescriptorSetLayoutCreateInfo::from_stages([&stage])
-            .into_pipeline_layout_create_info(device.clone())
-            .unwrap(),
+    let vertex_buffer = Buffer::from_iter(
+        vk.memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::VERTEX_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        verts
     )
     .unwrap();
 
-    let compute_pipeline = ComputePipeline::new(
-        device.clone(),
-        None,
-        ComputePipelineCreateInfo::stage_layout(stage, layout),
+    let image = vk.image([1024, 1024, 1]);
+    let image_buffer = vk.buf_iter((0..1024 * 1024 * 4).map(|_| 0u8));
+
+    let viewport = Viewport {
+        offset: [0.0, 0.0],
+        extent: [1024.0, 1024.0],
+        depth_range: 0.0..=1.0,
+    };
+
+    let render_pass = vulkano::single_pass_renderpass!(
+        vk.device.clone(),
+        attachments: {
+            color: {
+                format: Format::R8G8B8A8_UNORM,
+                samples: 1,
+                load_op: Clear,
+                store_op: Store,
+            },
+        },
+        pass: {
+            color: [color],
+            depth_stencil: {},
+        },
     )
-    .expect("failed to create compute pipeline");
+    .unwrap();
 
-    let res = 30000;
+    let pipeline = {
+        let vs = vs.entry_point("main").unwrap();
+        let fs = fs.entry_point("main").unwrap();
 
-    let image = vk.image([res, res, 1]);
+        let vertex_input_state = FVertex2d::per_vertex()
+            .definition(&vs.info().input_interface)
+            .unwrap();
 
+        let stages = [
+            PipelineShaderStageCreateInfo::new(vs),
+            PipelineShaderStageCreateInfo::new(fs),
+        ];
+
+        let layout = PipelineLayout::new(
+            vk.device.clone(),
+            PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
+                .into_pipeline_layout_create_info(vk.device.clone())
+                .unwrap(),
+        )
+        .unwrap();
+
+        let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
+
+        GraphicsPipeline::new(
+            vk.device.clone(),
+            None,
+            GraphicsPipelineCreateInfo {
+                // The stages of our pipeline, we have vertex and fragment stages.
+                stages: stages.into_iter().collect(),
+                // Describes the layout of the vertex input and how should it behave.
+                vertex_input_state: Some(vertex_input_state),
+                // Indicate the type of the primitives (the default is a list of triangles).
+                input_assembly_state: Some(InputAssemblyState::default()),
+                // Set the fixed viewport.
+                viewport_state: Some(ViewportState {
+                    viewports: [viewport].into_iter().collect(),
+                    ..Default::default()
+                }),
+                // Ignore these for now.
+                rasterization_state: Some(vulkano::pipeline::graphics::rasterization::RasterizationState::default()),
+                multisample_state: Some(vulkano::pipeline::graphics::multisample::MultisampleState::default()),
+                color_blend_state: Some(vulkano::pipeline::graphics::color_blend::ColorBlendState::with_attachment_states(
+                    subpass.num_color_attachments(),
+                    vulkano::pipeline::graphics::color_blend::ColorBlendAttachmentState::default(),
+                )),
+                // This graphics pipeline object concerns the first pass of the render pass.
+                subpass: Some(subpass.into()),
+                ..GraphicsPipelineCreateInfo::layout(layout)
+            },
+        )
+        .unwrap()
+    };
+    
     let view = ImageView::new_default(image.clone()).unwrap();
-    let layout = compute_pipeline.layout().set_layouts().get(0).unwrap();
-    let set = vulkano::descriptor_set::PersistentDescriptorSet::new(
-            &vk.descriptor_set_allocator,
-            layout.clone(),
-            [vulkano::descriptor_set::WriteDescriptorSet::image_view(0, view)],
-            [],
-        )
-        .unwrap();
+    let framebuffer = Framebuffer::new(
+        render_pass.clone(),
+        FramebufferCreateInfo {
+            attachments: vec![view],
+            ..Default::default()
+        },
+    )
+    .unwrap();
 
-    let buf = vk.buf_iter((0..res * res * 4).map(|_| 0u8)); // buffer must be the size of the
-                                                              // image
-
-
-    let mut command_buffer_builder = vk.builder(); 
-    command_buffer_builder
-        .bind_pipeline_compute(compute_pipeline.clone())
-        .unwrap()
-        .bind_descriptor_sets(
-            PipelineBindPoint::Compute,
-            compute_pipeline.layout().clone(),
-            0, 
-            set
+    let mut builder = vk.builder();
+    builder
+        .begin_render_pass(
+            vulkano::command_buffer::RenderPassBeginInfo {
+                clear_values: vec![Some([0.0, 0.0, 1.0, 1.0].into())],
+                ..vulkano::command_buffer::RenderPassBeginInfo::framebuffer(framebuffer.clone())
+            },
+            vulkano::command_buffer::SubpassBeginInfo {
+                contents: vulkano::command_buffer::SubpassContents::Inline,
+                ..Default::default()
+            },
         )
         .unwrap()
-        .dispatch([res / 8, res / 8, 1])
+
+        // new stuff
+        .bind_pipeline_graphics(pipeline.clone())
         .unwrap()
-        .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(image, buf.clone()))
+        .bind_vertex_buffers(0, vertex_buffer.clone())
+        .unwrap()
+        .draw(
+            3, 1, 0, 0, // 3 is the number of vertices, 1 is the number of instances
+        )
+        .unwrap()
+        .end_render_pass(vulkano::command_buffer::SubpassEndInfo::default())
+        .unwrap()
+        .copy_image_to_buffer(CopyImageToBufferInfo::image_buffer(image, image_buffer.clone()))
         .unwrap();
 
-    let command_buffer = command_buffer_builder.build().unwrap();
+    let command_buffer = builder.build().unwrap();
 
     vk.sync(command_buffer);
 
+    let buffer_content = image_buffer.read().unwrap();
 
-    let buf_content = buf.read().unwrap();
-    let image = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(res, res, &buf_content[..]).unwrap();
+    let image = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(1024, 1024, &buffer_content[..]).unwrap();
     image.save("image.png").unwrap();
 
     println!("succeed!");
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
