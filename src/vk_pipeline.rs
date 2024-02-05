@@ -20,9 +20,9 @@ use crate::vk_utils::Vk;
 
 #[repr(C)]
 #[derive(BufferContents, Vertex)]
-struct FVertex2d {
-    #[format(R32G32_SFLOAT)]
-    position: [f32; 2],
+struct FVertex3d {
+    #[format(R32G32B32_SFLOAT)]
+    position: [f32; 3],
 }
 
 #[derive(Clone)]
@@ -64,7 +64,7 @@ impl Vk {
             let vs = vs.entry_point("main").unwrap();
             let fs = fs.entry_point("main").unwrap();
 
-            let vertex_input_state = FVertex2d::per_vertex()
+            let vertex_input_state = FVertex3d::per_vertex()
                 .definition(&vs.info().input_interface)
                 .unwrap();
 

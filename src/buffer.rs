@@ -33,11 +33,6 @@ impl vk_utils::Vk {
         ).expect("failed to create buffer")
     }
 
-
-    pub fn buf() {
-        
-    }
-
     pub fn image(&self, dim: [u32; 3]) -> std::sync::Arc<Image>  {
         Image::new(
             self.memory_allocator.clone(),

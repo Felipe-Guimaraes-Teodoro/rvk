@@ -23,10 +23,10 @@ mod vs {
         src: r"
             #version 460
 
-            layout(location = 0) in vec2 position;
+            layout(location = 0) in vec3 position;
 
             void main() {
-                gl_Position = vec4(position, 0.0, 1.0);
+                gl_Position = vec4(position, 1.0);
             }
         ",
     }
@@ -50,21 +50,22 @@ mod fs {
 
 #[repr(C)]
 #[derive(BufferContents, Vertex)]
-struct FVertex2d {
+struct FVertex3d {
     #[format(R32G32_SFLOAT)]
-    position: [f32; 2],
+    position: [f32; 3],
 }
 
 fn main() {
     // Initialization // 
     let mut vk = vk_utils::VK;
+
     let vs = vs::load(vk.device.clone()).expect("failed to create shader module");
     let fs = fs::load(vk.device.clone()).expect("failed to create shader module");
 
     let verts = vec![
-        FVertex2d { position: [-0.5, -0.5 ] }, 
-        FVertex2d { position: [0.0, 0.5 ] }, 
-        FVertex2d { position: [0.5, -0.25 ] }, 
+        FVertex3d { position: [-0.5, -0.5, 0.0 ] }, 
+        FVertex3d { position: [0.0, 0.5, 0.0 ] }, 
+        FVertex3d { position: [0.5, -0.25, 0.0 ] }, 
     ];
 
     let vertex_buffer = Buffer::from_iter(
