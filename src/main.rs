@@ -10,6 +10,9 @@ use vulkano::pipeline::layout::PipelineDescriptorSetLayoutCreateInfo;
 use vulkano::pipeline::{GraphicsPipeline, PipelineLayout, PipelineShaderStageCreateInfo};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, Subpass};
 use vulkano::command_buffer::CopyImageToBufferInfo;
+use vulkano::instance::{Instance, InstanceCreateInfo};
+use vulkano::swapchain::Surface;
+use winit::event_loop::EventLoop;
 
 mod vk_utils;
 mod buffer;
@@ -58,6 +61,8 @@ struct FVertex3d {
 fn main() {
     // Initialization // 
     let mut vk = vk_utils::VK;
+
+    // test
 
     let vs = vs::load(vk.device.clone()).expect("failed to create shader module");
     let fs = fs::load(vk.device.clone()).expect("failed to create shader module");
