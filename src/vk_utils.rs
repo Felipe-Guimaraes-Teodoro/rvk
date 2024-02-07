@@ -13,14 +13,14 @@ use vulkano::command_buffer::allocator::{
 use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract};
 use vulkano::sync::{self, GpuFuture};
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
+use vulkano::swapchain::Surface;
 
 use std::sync::{Arc, Mutex};
 
 use once_cell::sync::Lazy;
 
-pub const VK: Lazy<Arc<Vk>> = Lazy::new(|| { Arc::new(Vk::new()) });
-
 pub struct Vk {
+    pub library: Arc<VulkanLibrary>,
     pub device: Arc<Device>, 
     pub queue: Arc<Queue>,
     pub instance: Arc<Instance>,
@@ -32,11 +32,19 @@ pub struct Vk {
 }
 
 impl Vk {
-    pub fn new() -> Self {
+    pub fn new(event_loop: &winit::event_loop::EventLoop<()>) -> Self {
         // Initialization // 
         let library = VulkanLibrary::new().expect("no local Vulkan library/DLL");
-        let instance = Instance::new(library, InstanceCreateInfo::default())
-            .expect("failed to create instance");
+
+        let req_extensions = Surface::required_extensions(&event_loop);
+        let instance = Instance::new(
+            library.clone(), 
+            InstanceCreateInfo {
+                enabled_extensions: req_extensions,
+                ..Default::default()
+            },
+        )
+        .expect("failed to create instance");
 
         let physical_device = instance
             .enumerate_physical_devices()
@@ -81,6 +89,7 @@ impl Vk {
             Arc::new(StandardDescriptorSetAllocator::new(device.clone(), Default::default()));
 
         Self {
+            library,
             device,
             queue,
             instance,
