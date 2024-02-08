@@ -69,6 +69,10 @@ impl Vk {
                     queue_family_index,
                     ..Default::default()
                 }],
+                enabled_extensions: vulkano::device::DeviceExtensions {
+                    khr_swapchain: true,
+                    ..vulkano::device::DeviceExtensions::empty()
+                },
                 ..Default::default()
             },
         )
