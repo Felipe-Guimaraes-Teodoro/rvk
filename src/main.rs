@@ -51,14 +51,6 @@ mod fs {
     }
 }
 
-
-#[repr(C)]
-#[derive(BufferContents, Vertex)]
-struct FVertex3d {
-    #[format(R32G32_SFLOAT)]
-    position: [f32; 3],
-}
-
 fn main() {
     // Initialization // 
 
