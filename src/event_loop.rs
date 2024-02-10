@@ -82,7 +82,11 @@ pub fn run() {
                 window_resized = true;
             },
 
-            Event::MainEventsCleared => {},
+            Event::MainEventsCleared => {
+                if recreate_swapchain {
+                    recreate_swapchain = false;
+                }
+            },
 
             _ => () 
         }
