@@ -1,7 +1,7 @@
 use vulkano::VulkanLibrary;
 use vulkano::instance::{Instance, InstanceCreateInfo};
 use vulkano::device::QueueFlags;
-use vulkano::device::{Device, DeviceCreateInfo, QueueCreateInfo, Queue};
+use vulkano::device::{Device, physical::PhysicalDevice, DeviceCreateInfo, QueueCreateInfo, Queue};
 
 use vulkano::memory::allocator::{
     StandardMemoryAllocator, FreeListAllocator, GenericMemoryAllocator
@@ -14,19 +14,23 @@ use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, Prim
 use vulkano::sync::{self, GpuFuture};
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::swapchain::Surface;
+use vulkano::image::ImageUsage;
+use vulkano::swapchain::{Swapchain, SwapchainCreateInfo};
 
-use std::sync::{Arc, Mutex};
-
-use once_cell::sync::Lazy;
+use std::sync::Arc;
 
 pub struct Vk {
     pub library: Arc<VulkanLibrary>,
+    pub physical_device: Arc<PhysicalDevice>,
     pub device: Arc<Device>, 
     pub queue: Arc<Queue>,
     pub instance: Arc<Instance>,
     pub memory_allocator: Arc<GenericMemoryAllocator<FreeListAllocator>>,
-    pub command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+    pub command_buffer_allocator: StandardCommandBufferAllocator,
     pub descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+
+    pub swapchain: Option<Arc<vulkano::swapchain::Swapchain>>,
+    pub images: Option<Vec<Arc<vulkano::image::Image>>>,
 
     pub resolution: [f32; 2],
 }
@@ -62,7 +66,7 @@ impl Vk {
             .expect("couldn't find a graphical queue family") as u32;
 
         let (device, mut queues) = Device::new(
-            physical_device,
+            physical_device.clone(),
             DeviceCreateInfo {
                 // here we pass the desired queue family to use by index
                 queue_create_infos: vec![QueueCreateInfo {
@@ -84,10 +88,10 @@ impl Vk {
 
         // commands
 
-        let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
+        let command_buffer_allocator = StandardCommandBufferAllocator::new(
             device.clone(),
             StandardCommandBufferAllocatorCreateInfo::default(),
-        ));
+        );
 
         let descriptor_set_allocator =
             Arc::new(StandardDescriptorSetAllocator::new(device.clone(), Default::default()));
@@ -95,24 +99,48 @@ impl Vk {
         Self {
             library,
             device,
+            physical_device,
             queue,
             instance,
             memory_allocator,
             command_buffer_allocator,
             descriptor_set_allocator,
             resolution: [1024.0, 1024.0],
+
+            swapchain: None, // will be initialized later on
+            images: None,
         }
     }
 
-    pub fn builder(&self) 
-        -> AutoCommandBufferBuilder<PrimaryAutoCommandBuffer<Arc<StandardCommandBufferAllocator>>, Arc<StandardCommandBufferAllocator>>
-    {
-        AutoCommandBufferBuilder::primary(
-            &self.command_buffer_allocator,
-            self.queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
+    pub fn set_swapchain(&mut self, surface: Arc<Surface>, window: &winit::window::Window) {
+        let caps = self.physical_device
+            .surface_capabilities(&surface, Default::default())
+            .expect("failed to get surface capabilities");
+        let dimensions = window.inner_size();
+        let composite_alpha = caps.supported_composite_alpha.into_iter().next().unwrap();
+        let image_format = Some(
+            self.physical_device
+                .surface_formats(&surface, Default::default())
+                .unwrap()[0]
+                .0,
+        );
+
+        let (mut swapchain, images) = Swapchain::new(
+            self.device.clone(),
+            surface.clone(),
+            SwapchainCreateInfo {
+                min_image_count: caps.min_image_count + 1,
+                image_view_formats: vec![image_format.unwrap()],
+                image_extent: dimensions.into(),
+                image_usage: ImageUsage::COLOR_ATTACHMENT, 
+                composite_alpha,
+                ..Default::default()
+            },
         )
-        .unwrap()
+        .unwrap();
+
+        self.swapchain = Some(swapchain.clone());
+        self.images = Some(images.clone());
     }
 
     pub fn sync(&self, command: Arc<impl PrimaryCommandBufferAbstract + 'static>) {
