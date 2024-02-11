@@ -19,6 +19,12 @@ use vulkano::swapchain::{Swapchain, SwapchainCreateInfo};
 
 use std::sync::Arc;
 
+use once_cell::sync::Lazy;
+
+// todo: make vk global
+// issues: vk requires event loopto be initialized; so either make it so tgat vk doesnt need event
+// loop or make event_loop global aswell, which also comes with it s own problems...
+
 pub struct Vk {
     pub library: Arc<VulkanLibrary>,
     pub physical_device: Arc<PhysicalDevice>,
