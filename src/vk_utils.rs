@@ -129,14 +129,15 @@ impl Vk {
                 .surface_formats(&surface, Default::default())
                 .unwrap()[0]
                 .0,
-        );
+        )
+        .unwrap();
 
         let (mut swapchain, images) = Swapchain::new(
             self.device.clone(),
             surface.clone(),
             SwapchainCreateInfo {
                 min_image_count: caps.min_image_count + 1,
-                image_view_formats: vec![image_format.unwrap()],
+                image_format,
                 image_extent: dimensions.into(),
                 image_usage: ImageUsage::COLOR_ATTACHMENT, 
                 composite_alpha,

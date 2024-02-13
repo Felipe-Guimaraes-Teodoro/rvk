@@ -7,6 +7,12 @@ use winit::window::WindowBuilder;
 
 use vulkano::swapchain::Surface;
 
+use vulkano::swapchain;
+use vulkano::{Validated, VulkanError};
+use vulkano::swapchain::SwapchainPresentInfo;
+
+use vulkano::sync::{self, GpuFuture};
+
 mod vs {
     vulkano_shaders::shader!{
         ty: "vertex",
@@ -59,13 +65,15 @@ pub fn run() {
     ); 
 
     vk.set_swapchain(surface, &window);
+    let swapchain = vk.swapchain.clone().unwrap();
     let render_pass = vk.get_render_pass();
     let framebuffers = vk.get_framebuffers(&render_pass);
-    let pipeline = vk.get_pipeline(vs, fs, render_pass, viewport);
-    let command_buffers = vk.get_command_buffers(&pipeline, &framebuffers, &vertex_buffer);
-    
+    let pipeline = vk.get_pipeline(vs.clone(), fs.clone(), render_pass.clone(), viewport.clone());
+    let mut command_buffers = vk.get_command_buffers(&pipeline, &framebuffers, &vertex_buffer);
+
     let mut window_resized = false; 
     let mut recreate_swapchain = false;
+
     event_loop.run(move |event, _, control_flow| {
         match event {
             Event::WindowEvent { 
@@ -83,8 +91,53 @@ pub fn run() {
             },
 
             Event::MainEventsCleared => {
-                if recreate_swapchain {
+                if window_resized || recreate_swapchain {
                     recreate_swapchain = false;
+                    let new_dim = window.inner_size();
+
+                    let (new_swpchain, new_imgs) = swapchain 
+                        .recreate(vulkano::swapchain::SwapchainCreateInfo {
+                            image_extent: new_dim.into(),
+                            ..swapchain.create_info()
+                        })
+                    .expect("failed to recreate swpchain");
+
+                    vk.swapchain = Some(new_swpchain);
+                    vk.images = Some(new_imgs);
+                    let new_framebuffers = vk.get_framebuffers(&render_pass);
+
+                    if window_resized {
+                        window_resized = false;
+
+                        viewport.extent = new_dim.into();
+                        let new_pipeline = vk.get_pipeline(vs.clone(), fs.clone(), render_pass.clone(), viewport.clone());
+                        command_buffers = vk.get_command_buffers(&new_pipeline, &new_framebuffers, &vertex_buffer);
+                    }
+
+
+                    let (image_i, suboptimal, acquire_future) = 
+                        match swapchain::acquire_next_image(swapchain.clone(), None)
+                            .map_err(Validated::unwrap) 
+                        {
+                            Ok(r) => r,
+                            Err(VulkanError::OutOfDate) => {
+                                recreate_swapchain = true;
+                                return;
+                            }
+                            Err(e) => panic!("failed to acquire next image: {e}"),
+                        };
+
+                    if suboptimal { recreate_swapchain = true; }
+
+                    let execution = sync::now(vk.device.clone())
+                        .join(acquire_future)
+                        .then_execute(vk.queue.clone(), command_buffers[image_i as usize].clone())
+                        .unwrap()
+                        .then_swapchain_present(
+                            vk.queue.clone(),
+                            SwapchainPresentInfo::swapchain_image_index(swapchain.clone(), image_i),
+                        )
+                        .then_signal_fence_and_flush();
                 }
             },
 
