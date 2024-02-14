@@ -12,6 +12,7 @@ use vulkano::{Validated, VulkanError};
 use vulkano::swapchain::SwapchainPresentInfo;
 
 use vulkano::sync::{self, GpuFuture};
+use vulkano::sync::future::FenceSignalFuture;
 
 mod vs {
     vulkano_shaders::shader!{
@@ -63,9 +64,10 @@ pub fn run() {
     let vertex_buffer = vk.vertex_buffer(
         vec![ vert(0.0, 0.0, 0.0), vert(1.0, 0.0, 0.0), vert(0.0, -0.5, 0.0) ],
     ); 
+    vert
 
     vk.set_swapchain(surface, &window);
-    let swapchain = vk.swapchain.clone().unwrap();
+    let images = vk.images.clone().unwrap();
     let render_pass = vk.get_render_pass();
     let framebuffers = vk.get_framebuffers(&render_pass);
     let pipeline = vk.get_pipeline(vs.clone(), fs.clone(), render_pass.clone(), viewport.clone());
@@ -73,6 +75,11 @@ pub fn run() {
 
     let mut window_resized = false; 
     let mut recreate_swapchain = false;
+
+    let frames_in_flight = images.len();
+    let mut fences: Vec<Option<Arc<FenceSignalFuture<_>>>> = vec![None; frames_in_flight];
+    let mut previous_fence_i = 0;
+
 
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -91,14 +98,16 @@ pub fn run() {
             },
 
             Event::MainEventsCleared => {
+                let then = std::time::Instant::now();
+                
                 if window_resized || recreate_swapchain {
                     recreate_swapchain = false;
                     let new_dim = window.inner_size();
 
-                    let (new_swpchain, new_imgs) = swapchain 
+                    let (new_swpchain, new_imgs) = vk.swapchain.clone().unwrap()
                         .recreate(vulkano::swapchain::SwapchainCreateInfo {
                             image_extent: new_dim.into(),
-                            ..swapchain.create_info()
+                            ..vk.swapchain.clone().unwrap().create_info()
                         })
                     .expect("failed to recreate swpchain");
 
@@ -113,32 +122,62 @@ pub fn run() {
                         let new_pipeline = vk.get_pipeline(vs.clone(), fs.clone(), render_pass.clone(), viewport.clone());
                         command_buffers = vk.get_command_buffers(&new_pipeline, &new_framebuffers, &vertex_buffer);
                     }
-
-
-                    let (image_i, suboptimal, acquire_future) = 
-                        match swapchain::acquire_next_image(swapchain.clone(), None)
-                            .map_err(Validated::unwrap) 
-                        {
-                            Ok(r) => r,
-                            Err(VulkanError::OutOfDate) => {
-                                recreate_swapchain = true;
-                                return;
-                            }
-                            Err(e) => panic!("failed to acquire next image: {e}"),
-                        };
-
-                    if suboptimal { recreate_swapchain = true; }
-
-                    let execution = sync::now(vk.device.clone())
-                        .join(acquire_future)
-                        .then_execute(vk.queue.clone(), command_buffers[image_i as usize].clone())
-                        .unwrap()
-                        .then_swapchain_present(
-                            vk.queue.clone(),
-                            SwapchainPresentInfo::swapchain_image_index(swapchain.clone(), image_i),
-                        )
-                        .then_signal_fence_and_flush();
                 }
+
+                let (image_i, suboptimal, acquire_future) =
+                    match swapchain::acquire_next_image(vk.swapchain.clone().unwrap(), None)
+                        .map_err(Validated::unwrap)
+                    {
+                        Ok(r) => r,
+                        Err(VulkanError::OutOfDate) => {
+                            recreate_swapchain = true;
+                            return;
+                        }
+                        Err(e) => panic!("failed to acquire next image: {e}"),
+                    };
+
+                if suboptimal {
+                    recreate_swapchain = true;
+                }
+
+                if let Some(image_fence) = &fences[image_i as usize] {
+                    image_fence.wait(None).unwrap();
+                }
+
+                let previous_future = match fences[previous_fence_i as usize].clone() {
+                    None => {
+                        let mut now = sync::now(vk.device.clone());
+                        now.cleanup_finished();
+                        now.boxed()
+                    }
+                    Some(fence) => fence.boxed(),
+                };
+
+                let future = previous_future
+                    .join(acquire_future)
+                    .then_execute(vk.queue.clone(), command_buffers[image_i as usize].clone())
+                    .unwrap()
+                    .then_swapchain_present(
+                        vk.queue.clone(),
+                        SwapchainPresentInfo::swapchain_image_index(vk.swapchain.clone().unwrap(), image_i),
+                    )
+                    .then_signal_fence_and_flush();
+
+                fences[image_i as usize] = match future.map_err(Validated::unwrap) {
+                    Ok(value) => Some(Arc::new(value)),
+                    Err(VulkanError::OutOfDate) => {
+                        recreate_swapchain = true;
+                        None
+                    }
+                    Err(e) => {
+                        println!("failed to flush future: {e}");
+                        None
+                    }
+                };
+
+                previous_fence_i = image_i;
+
+                println!("MAIN: vk_present @ MainEventsCleared cleared within {:?}", then.elapsed());
             },
 
             _ => () 
