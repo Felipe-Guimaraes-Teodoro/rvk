@@ -37,6 +37,10 @@ mod fs {
 
             layout(location = 0) out vec4 f_color;
 
+            layout(push_constant) uniform PushConstantData {
+                float time;
+            } pc;
+
             void main() {
                 f_color = vec4(1.0, 0.0, 0.0, 1.0);
             }
@@ -60,6 +64,10 @@ pub fn run() {
     };
     let vs = vs::load(vk.device.clone()).expect("failed"); 
     let fs = fs::load(vk.device.clone()).expect("failed"); 
+
+    let push_constants = fs::PushConstantData {
+        time: 0.0, 
+    };
 
     let vertex_buffer = vk.vertex_buffer(
         vec![ vert(0.0, 0.0, 0.0), vert(1.0, 0.0, 0.0), vert(0.0, -0.5, 0.0) ],
