@@ -90,7 +90,7 @@ impl Vk {
         fs: Arc<ShaderModule>,
         render_pass: Arc<RenderPass>,
         viewport: Viewport,
-    ) -> Arc<GraphicsPipeline> {
+    ) -> (Arc<GraphicsPipeline>, Arc<PipelineLayout>) {
         let vs = vs.entry_point("main").unwrap();
         let fs = fs.entry_point("main").unwrap();
 
@@ -113,7 +113,7 @@ impl Vk {
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
 
-        GraphicsPipeline::new(
+        (GraphicsPipeline::new(
             self.device.clone(),
             None,
             GraphicsPipelineCreateInfo {
@@ -131,10 +131,10 @@ impl Vk {
                     ColorBlendAttachmentState::default(),
                 )),
                 subpass: Some(subpass.into()),
-                ..GraphicsPipelineCreateInfo::layout(layout)
+                ..GraphicsPipelineCreateInfo::layout(layout.clone())
             },
         )
-        .unwrap()
+        .unwrap(), layout)
     }
 
     pub fn get_command_buffers(
@@ -142,6 +142,8 @@ impl Vk {
         pipeline: &Arc<GraphicsPipeline>,
         framebuffers: &[Arc<Framebuffer>],
         vertex_buffer: &Subbuffer<[FVertex3d]>,
+        layout: Arc<PipelineLayout>,
+        push_constant: crate::event_loop::fs::PushConstantData,
     ) -> Vec<Arc<PrimaryAutoCommandBuffer>> {
         framebuffers
             .iter()
@@ -164,6 +166,8 @@ impl Vk {
                             ..Default::default()
                         },
                     )
+                    .unwrap()
+                    .push_constants(layout.clone(), 0, push_constant)
                     .unwrap()
                     .bind_pipeline_graphics(pipeline.clone())
                     .unwrap()

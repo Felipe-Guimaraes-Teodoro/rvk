@@ -29,7 +29,7 @@ mod vs {
     }
 }
 
-mod fs {
+pub mod fs {
     vulkano_shaders::shader!{
         ty: "fragment",
         src: "
@@ -42,7 +42,7 @@ mod fs {
             } pc;
 
             void main() {
-                f_color = vec4(1.0, 0.0, 0.0, 1.0);
+                f_color = vec4(sin(pc.time), 0.0, 0.0, 1.0);
             }
         ",
     }
@@ -65,21 +65,21 @@ pub fn run() {
     let vs = vs::load(vk.device.clone()).expect("failed"); 
     let fs = fs::load(vk.device.clone()).expect("failed"); 
 
-    let push_constants = fs::PushConstantData {
+    let mut push_constants = fs::PushConstantData {
         time: 0.0, 
     };
 
     let vertex_buffer = vk.vertex_buffer(
         vec![ vert(0.0, 0.0, 0.0), vert(1.0, 0.0, 0.0), vert(0.0, -0.5, 0.0) ],
     ); 
-    vert
 
     vk.set_swapchain(surface, &window);
     let images = vk.images.clone().unwrap();
     let render_pass = vk.get_render_pass();
     let framebuffers = vk.get_framebuffers(&render_pass);
-    let pipeline = vk.get_pipeline(vs.clone(), fs.clone(), render_pass.clone(), viewport.clone());
-    let mut command_buffers = vk.get_command_buffers(&pipeline, &framebuffers, &vertex_buffer);
+    let (pipeline, layout) = vk.get_pipeline(vs.clone(), fs.clone(), render_pass.clone(), viewport.clone());
+
+    let mut command_buffers = vk.get_command_buffers(&pipeline, &framebuffers, &vertex_buffer, layout, push_constants);
 
     let mut window_resized = false; 
     let mut recreate_swapchain = false;
@@ -127,8 +127,23 @@ pub fn run() {
                         window_resized = false;
 
                         viewport.extent = new_dim.into();
-                        let new_pipeline = vk.get_pipeline(vs.clone(), fs.clone(), render_pass.clone(), viewport.clone());
-                        command_buffers = vk.get_command_buffers(&new_pipeline, &new_framebuffers, &vertex_buffer);
+                        let (new_pipeline, new_layout) = vk.get_pipeline(
+                            vs.clone(), 
+                            fs.clone(), 
+                            render_pass.clone(), 
+                            viewport.clone()
+                        );
+                        let new_push_constants = fs::PushConstantData {
+                            time: push_constants.time + 0.1,
+                        };
+                        push_constants = new_push_constants;
+                        command_buffers = vk.get_command_buffers(
+                            &new_pipeline, 
+                            &new_framebuffers, 
+                            &vertex_buffer, 
+                            new_layout,
+                            new_push_constants,
+                        );
                     }
                 }
 
