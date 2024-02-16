@@ -76,10 +76,10 @@ pub fn run() {
     vk.set_swapchain(surface, &window);
     let images = vk.images.clone().unwrap();
     let render_pass = vk.get_render_pass();
-    let framebuffers = vk.get_framebuffers(&render_pass);
-    let (pipeline, layout) = vk.get_pipeline(vs.clone(), fs.clone(), render_pass.clone(), viewport.clone());
+    let mut framebuffers = vk.get_framebuffers(&render_pass);
+    let (mut pipeline, mut layout) = vk.get_pipeline(vs.clone(), fs.clone(), render_pass.clone(), viewport.clone());
 
-    let mut command_buffers = vk.get_command_buffers(&pipeline, &framebuffers, &vertex_buffer, layout, push_constants);
+    let mut command_buffers = vk.get_command_buffers(&pipeline, &framebuffers, &vertex_buffer, layout.clone(), push_constants);
 
     let mut window_resized = false; 
     let mut recreate_swapchain = false;
@@ -121,31 +121,32 @@ pub fn run() {
 
                     vk.swapchain = Some(new_swpchain);
                     vk.images = Some(new_imgs);
-                    let new_framebuffers = vk.get_framebuffers(&render_pass);
+                    framebuffers = vk.get_framebuffers(&render_pass);
 
                     if window_resized {
                         window_resized = false;
 
                         viewport.extent = new_dim.into();
-                        let (new_pipeline, new_layout) = vk.get_pipeline(
+                        (pipeline, layout) = vk.get_pipeline(
                             vs.clone(), 
                             fs.clone(), 
                             render_pass.clone(), 
                             viewport.clone()
                         );
-                        let new_push_constants = fs::PushConstantData {
-                            time: push_constants.time + 0.1,
-                        };
-                        push_constants = new_push_constants;
-                        command_buffers = vk.get_command_buffers(
-                            &new_pipeline, 
-                            &new_framebuffers, 
-                            &vertex_buffer, 
-                            new_layout,
-                            new_push_constants,
-                        );
                     }
                 }
+
+                push_constants = fs::PushConstantData {
+                    time: push_constants.time + 0.1,
+                };
+
+                command_buffers = vk.get_command_buffers(
+                    &pipeline.clone(), 
+                    &framebuffers, 
+                    &vertex_buffer, 
+                    layout.clone(),
+                    push_constants,
+                );
 
                 let (image_i, suboptimal, acquire_future) =
                     match swapchain::acquire_next_image(vk.swapchain.clone().unwrap(), None)
@@ -199,7 +200,8 @@ pub fn run() {
                 };
 
                 previous_fence_i = image_i;
-
+                
+                dbg!(previous_fence_i);
                 println!("MAIN: vk_present @ MainEventsCleared cleared within {:?}", then.elapsed());
             },
 
