@@ -22,7 +22,7 @@ use vulkano::command_buffer::{
 use crate::vk_pipeline::FVertex3d;
 use crate::vk_utils::Vk;
 
-struct VkPresenter {
+pub struct VkPresenter {
     viewport: vulkano::pipeline::graphics::viewport::Viewport,
     shader_mods: Vec<Arc<vulkano::shader::ShaderModule>>,
     vert_buffers: Vec<Subbuffer<[FVertex3d]>>,
@@ -37,4 +37,12 @@ struct VkPresenter {
     previous_fence_i: u32, 
 }
 
+impl VkPresenter {
+    pub fn new() -> Self {
+        todo!()
+    }
 
+    pub fn present(&mut self) {}
+
+    pub fn on_window_resized(&mut self) {}
+}
