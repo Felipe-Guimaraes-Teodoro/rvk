@@ -143,7 +143,7 @@ impl Vk {
         framebuffers: &[Arc<Framebuffer>],
         vertex_buffer: &Subbuffer<[FVertex3d]>,
         layout: Arc<PipelineLayout>,
-        push_constant: crate::event_loop::fs::PushConstantData,
+        push_constant: crate::vk_present::fs::PushConstantData,
     ) -> Vec<Arc<PrimaryAutoCommandBuffer>> {
         framebuffers
             .iter()

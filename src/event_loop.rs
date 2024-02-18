@@ -14,80 +14,17 @@ use vulkano::swapchain::SwapchainPresentInfo;
 use vulkano::sync::{self, GpuFuture};
 use vulkano::sync::future::FenceSignalFuture;
 
-mod vs {
-    vulkano_shaders::shader!{
-        ty: "vertex",
-        src: r"
-            #version 460
-
-            layout(location = 0) in vec3 position;
-
-            void main() {
-                gl_Position = vec4(position, 1.0);
-            }
-        ",
-    }
-}
-
-pub mod fs {
-    vulkano_shaders::shader!{
-        ty: "fragment",
-        src: "
-            #version 460
-
-            layout(location = 0) out vec4 f_color;
-
-            layout(push_constant) uniform PushConstantData {
-                float time;
-            } pc;
-
-            void main() {
-                f_color = vec4(sin(pc.time), 0.0, 0.0, 1.0);
-            }
-        ",
-    }
-}
 
 use crate::vk_pipeline::vert;
+use crate::vk_present::VkPresenter;
 pub fn run() {
     let event_loop = EventLoop::new();
     let mut vk = crate::vk_utils::Vk::new(&event_loop);
 
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap()); 
     window.set_title("VULKAN");
-    let surface = Surface::from_window(vk.instance.clone(), window.clone()).unwrap();
 
-    let mut viewport = vulkano::pipeline::graphics::viewport::Viewport {
-        offset: [0.0, 0.0],
-        extent: window.inner_size().into(),
-        depth_range: 0.0..=1.0,
-    };
-    let vs = vs::load(vk.device.clone()).expect("failed"); 
-    let fs = fs::load(vk.device.clone()).expect("failed"); 
-
-    let mut push_constants = fs::PushConstantData {
-        time: 0.0, 
-    };
-
-    let vertex_buffer = vk.vertex_buffer(
-        vec![ vert(0.0, 0.0, 0.0), vert(1.0, 0.0, 0.0), vert(0.0, -0.5, 0.0) ],
-    ); 
-
-    vk.set_swapchain(surface, &window);
-    let images = vk.images.clone().unwrap();
-    let render_pass = vk.get_render_pass();
-    let mut framebuffers = vk.get_framebuffers(&render_pass);
-    let (mut pipeline, mut layout) = vk.get_pipeline(vs.clone(), fs.clone(), render_pass.clone(), viewport.clone());
-
-    let mut command_buffers = vk.get_command_buffers(&pipeline, &framebuffers, &vertex_buffer, layout.clone(), push_constants);
-
-    let mut window_resized = false; 
-    let mut recreate_swapchain = false;
-
-    let frames_in_flight = images.len();
-    let mut fences: Vec<Option<Arc<FenceSignalFuture<_>>>> = vec![None; frames_in_flight];
-    let mut previous_fence_i = 0;
-
+    let mut pr = VkPresenter::new(&mut vk, window.clone());
 
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -102,14 +39,14 @@ pub fn run() {
                 event: WindowEvent::Resized(_),
                 ..
             } => {
-                window_resized = true;
+                pr.window_resized = true;
             },
 
             Event::MainEventsCleared => {
                 let then = std::time::Instant::now();
                 
-                if window_resized || recreate_swapchain {
-                    recreate_swapchain = false;
+                if pr.window_resized || pr.recreate_swapchain {
+                    pr.recreate_swapchain = false;
                     let new_dim = window.inner_size();
 
                     let (new_swpchain, new_imgs) = vk.swapchain.clone().unwrap()
@@ -121,31 +58,27 @@ pub fn run() {
 
                     vk.swapchain = Some(new_swpchain);
                     vk.images = Some(new_imgs);
-                    framebuffers = vk.get_framebuffers(&render_pass);
+                    pr.framebuffers = vk.get_framebuffers(&pr.render_pass);
 
-                    if window_resized {
-                        window_resized = false;
+                    if pr.window_resized {
+                        pr.window_resized = false;
 
-                        viewport.extent = new_dim.into();
-                        (pipeline, layout) = vk.get_pipeline(
-                            vs.clone(), 
-                            fs.clone(), 
-                            render_pass.clone(), 
-                            viewport.clone()
+                        pr.viewport.extent = new_dim.into();
+                        (pr.pipeline, pr.layout) = vk.get_pipeline(
+                            pr.shader_mods[0].clone(), 
+                            pr.shader_mods[1].clone(), 
+                            pr.render_pass.clone(), 
+                            pr.viewport.clone()
                         );
                     }
                 }
 
-                push_constants = fs::PushConstantData {
-                    time: push_constants.time + 0.1,
-                };
-
-                command_buffers = vk.get_command_buffers(
-                    &pipeline.clone(), 
-                    &framebuffers, 
-                    &vertex_buffer, 
-                    layout.clone(),
-                    push_constants,
+                pr.command_buffers = vk.get_command_buffers(
+                    &pr.pipeline.clone(), 
+                    &pr.framebuffers, 
+                    &pr.vert_buffers[0], 
+                    pr.layout.clone(),
+                    crate::vk_present::fs::PushConstantData {time: 0.0}
                 );
 
                 let (image_i, suboptimal, acquire_future) =
@@ -154,21 +87,21 @@ pub fn run() {
                     {
                         Ok(r) => r,
                         Err(VulkanError::OutOfDate) => {
-                            recreate_swapchain = true;
+                            pr.recreate_swapchain = true;
                             return;
                         }
                         Err(e) => panic!("failed to acquire next image: {e}"),
                     };
 
                 if suboptimal {
-                    recreate_swapchain = true;
+                    pr.recreate_swapchain = true;
                 }
 
-                if let Some(image_fence) = &fences[image_i as usize] {
+                if let Some(image_fence) = &pr.fences[image_i as usize] {
                     image_fence.wait(None).unwrap();
                 }
 
-                let previous_future = match fences[previous_fence_i as usize].clone() {
+                let previous_future = match pr.fences[pr.previous_fence_i as usize].clone() {
                     None => {
                         let mut now = sync::now(vk.device.clone());
                         now.cleanup_finished();
@@ -179,7 +112,7 @@ pub fn run() {
 
                 let future = previous_future
                     .join(acquire_future)
-                    .then_execute(vk.queue.clone(), command_buffers[image_i as usize].clone())
+                    .then_execute(vk.queue.clone(), pr.command_buffers[image_i as usize].clone())
                     .unwrap()
                     .then_swapchain_present(
                         vk.queue.clone(),
@@ -187,10 +120,10 @@ pub fn run() {
                     )
                     .then_signal_fence_and_flush();
 
-                fences[image_i as usize] = match future.map_err(Validated::unwrap) {
+                pr.fences[image_i as usize] = match future.map_err(Validated::unwrap) {
                     Ok(value) => Some(Arc::new(value)),
                     Err(VulkanError::OutOfDate) => {
-                        recreate_swapchain = true;
+                        pr.recreate_swapchain = true;
                         None
                     }
                     Err(e) => {
@@ -199,9 +132,8 @@ pub fn run() {
                     }
                 };
 
-                previous_fence_i = image_i;
+                pr.previous_fence_i = image_i;
                 
-                dbg!(previous_fence_i);
                 println!("MAIN: vk_present @ MainEventsCleared cleared within {:?}", then.elapsed());
             },
 
