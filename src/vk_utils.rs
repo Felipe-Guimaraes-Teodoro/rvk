@@ -140,7 +140,7 @@ impl Vk {
                 image_format,
                 image_extent: dimensions.into(),
                 image_usage: ImageUsage::COLOR_ATTACHMENT, 
-                present_mode: vulkano::swapchain::PresentMode::Immediate,
+                present_mode: vulkano::swapchain::PresentMode::Mailbox,
                 composite_alpha,
                 ..Default::default()
             },
