@@ -34,9 +34,13 @@ pub mod vs {
             #version 460
 
             layout(location = 0) in vec3 position;
+            layout(location = 0) out vec3 pos;
 
             void main() {
-                gl_Position = vec4(position, 1.0);
+                vec2 outUV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+                gl_Position = vec4(outUV * 2.0 - 1.0, 0.0, 1.0);
+
+                pos = vec3(outUV, 0.0);
             }
         ",
     }
@@ -49,23 +53,49 @@ pub mod fs {
             #version 460
 
             layout(location = 0) out vec4 f_color;
+            layout(location = 0) in vec3 pos;
 
             layout(push_constant) uniform PushConstantData {
                 float time;
+                vec2 cpos;
             } pc;
 
+
             void main() {
-                f_color = vec4(sin(pc.time), 0.0, 0.0, 1.0);
+                // float zoom = pc.time;
+                float zoom = -2.0;
+                vec2 norm_coordinates = pos.xy * vec2(0.5);
+                vec2 c = 1.0 / pow(2.0, zoom) * norm_coordinates - vec2(0.5, 0.5);
+
+                vec2 z = vec2(0.0, 0.0);
+                float i;
+                for (i = 0.0; i < 1.0; i += 0.005) {
+                    z = vec2(
+                        z.x * z.x - z.y * z.y + c.x,
+                        z.y * z.x + z.x * z.y + c.y
+                    );
+
+                    if (length(z) > 4.0) {
+                        break;
+                    }
+                }
+
+                f_color = vec4(vec2(i), sin(pc.time), 1.0);
             }
         ",
     }
 }
 
-static FRAGMENT_PUSH_CONSTANTS: Mutex<fs::PushConstantData> = Mutex::new(
-    fs::PushConstantData {
-        time: 0.0,
-    }
-);
+use once_cell::sync::Lazy;
+
+pub static FRAGMENT_PUSH_CONSTANTS: Lazy<Mutex<fs::PushConstantData>> = Lazy::new(|| {
+    Mutex::new(
+        fs::PushConstantData {
+            time: 0.0.into(),
+            cpos: [0.0, 0.0],
+        }
+    )
+});
 
 pub struct VkPresenter {
     pub viewport: vulkano::pipeline::graphics::viewport::Viewport,
@@ -98,7 +128,11 @@ impl VkPresenter {
         };
         let vert_buffers = vec![
             vk.vertex_buffer(
-                vec![vert(0.0, 0.0, 0.0), vert(1.0, 1.0, 0.0), vert(-1.0, 0.0, 0.0)],
+                vec![
+                    vert(0.0, 0.0, 0.0), 
+                    vert(0.0, 0.0, 0.0),
+                    vert(0.0, 0.0, 0.0),
+                ],
             ),
         ];
         let vs = vs::load(vk.device.clone()).unwrap();
@@ -145,7 +179,100 @@ impl VkPresenter {
         }
     }
 
-    pub fn present(&mut self) {}
+    pub fn if_recreate_swapchain(&mut self, window: Arc<winit::window::Window>, vk: &mut Vk) {
+        if self.window_resized || self.recreate_swapchain {
+            self.recreate_swapchain = false;
+            let new_dim = window.inner_size();
 
-    pub fn on_window_resized(&mut self) {}
+            let (new_swpchain, new_imgs) = vk.swapchain.clone().unwrap()
+                .recreate(vulkano::swapchain::SwapchainCreateInfo {
+                    image_extent: new_dim.into(),
+                    ..vk.swapchain.clone().unwrap().create_info()
+                })
+            .expect("failed to recreate swpchain");
+
+            vk.swapchain = Some(new_swpchain);
+            vk.images = Some(new_imgs);
+            self.framebuffers = vk.get_framebuffers(&self.render_pass);
+
+            if self.window_resized {
+                self.window_resized = false;
+
+                self.viewport.extent = new_dim.into();
+                (self.pipeline, self.layout) = vk.get_pipeline(
+                    self.shader_mods[0].clone(), 
+                    self.shader_mods[1].clone(), 
+                    self.render_pass.clone(), 
+                    self.viewport.clone()
+                );
+            }
+        }
+    }
+
+    pub fn update(&mut self, vk: &mut Vk) {
+        self.command_buffers = vk.get_command_buffers(
+            &self.pipeline.clone(), 
+            &self.framebuffers, 
+            &self.vert_buffers[0], 
+            self.layout.clone(),
+            *FRAGMENT_PUSH_CONSTANTS.lock().unwrap(),
+        );
+
+    }
+
+    pub fn present(&mut self, vk: &mut Vk) {
+        let (image_i, suboptimal, acquire_future) =
+            match swapchain::acquire_next_image(vk.swapchain.clone().unwrap(), None)
+                .map_err(Validated::unwrap)
+            {
+                Ok(r) => r,
+                Err(VulkanError::OutOfDate) => {
+                    self.recreate_swapchain = true;
+                    return;
+                }
+                Err(e) => panic!("failed to acquire next image: {e}"),
+            };
+
+        if suboptimal {
+            self.recreate_swapchain = true;
+        }
+
+        if let Some(image_fence) = &self.fences[image_i as usize] {
+            image_fence.wait(None).unwrap();
+        }
+
+        let previous_future = match self.fences[self.previous_fence_i as usize].clone() {
+            None => {
+                let mut now = sync::now(vk.device.clone());
+                now.cleanup_finished();
+                now.boxed()
+            }
+            Some(fence) => fence.boxed(),
+        };
+
+        let future = previous_future
+            .join(acquire_future)
+            .then_execute(vk.queue.clone(), self.command_buffers[image_i as usize].clone())
+            .unwrap()
+            .then_swapchain_present(
+                vk.queue.clone(),
+                SwapchainPresentInfo::swapchain_image_index(vk.swapchain.clone().unwrap(), image_i),
+            )
+            .then_signal_fence_and_flush();
+
+        self.fences[image_i as usize] = match future.map_err(Validated::unwrap) {
+            Ok(value) => Some(Arc::new(value)),
+            Err(VulkanError::OutOfDate) => {
+                self.recreate_swapchain = true;
+                None
+            }
+            Err(e) => {
+                println!("failed to flush future: {e}");
+                None
+            }
+        };
+
+        self.previous_fence_i = image_i;
+        
+    }
 }
