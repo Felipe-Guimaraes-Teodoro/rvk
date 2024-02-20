@@ -40,7 +40,7 @@ pub mod vs {
                 vec2 outUV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
                 gl_Position = vec4(outUV * 2.0 - 1.0, 0.0, 1.0);
 
-                pos = vec3(outUV, 0.0);
+                pos = vec3(outUV * 2.0 - 1.0, 0.0);
             }
         ",
     }
@@ -58,18 +58,14 @@ pub mod fs {
             layout(push_constant) uniform PushConstantData {
                 float time;
                 vec2 cpos;
+                vec2 ires;
             } pc;
 
-
-            void main() {
-                // float zoom = pc.time;
-                float zoom = -2.0;
-                vec2 norm_coordinates = pos.xy * vec2(0.5);
-                vec2 c = 1.0 / pow(2.0, zoom) * norm_coordinates - vec2(0.5, 0.5);
-
+            float mandelbrot(vec2 c) {
                 vec2 z = vec2(0.0, 0.0);
                 float i;
-                for (i = 0.0; i < 1.0; i += 0.005) {
+
+                for (i = 0.0; i < 1.0; i += 0.01) {
                     z = vec2(
                         z.x * z.x - z.y * z.y + c.x,
                         z.y * z.x + z.x * z.y + c.y
@@ -80,7 +76,26 @@ pub mod fs {
                     }
                 }
 
-                f_color = vec4(vec2(i), sin(pc.time), 1.0);
+                return i;
+            }
+
+            void main() {
+                // float zoom = pc.time;
+                float zoom = -1.0;
+
+                float i = 0.0;
+                float num_samples = 2;
+                for (int s = 0; s < num_samples; ++s) {
+                    vec2 jitter = vec2(float(s % 2), float (2 / 2)) / float(num_samples);
+                    vec2 samplePos = pos.xy + jitter / pc.ires - pc.cpos;
+                    samplePos.y *= 1.0 / (pc.ires.x / pc.ires.y);
+
+                    i += mandelbrot(samplePos);
+                }
+                
+                float avgI = i / float(num_samples);
+
+                f_color = vec4(vec2(avgI), sin(pc.time), 1.0);
             }
         ",
     }
@@ -93,6 +108,7 @@ pub static FRAGMENT_PUSH_CONSTANTS: Lazy<Mutex<fs::PushConstantData>> = Lazy::ne
         fs::PushConstantData {
             time: 0.0.into(),
             cpos: [0.0, 0.0],
+            ires: [800.0, 800.0],
         }
     )
 });
@@ -183,6 +199,8 @@ impl VkPresenter {
         if self.window_resized || self.recreate_swapchain {
             self.recreate_swapchain = false;
             let new_dim = window.inner_size();
+
+            FRAGMENT_PUSH_CONSTANTS.lock().unwrap().ires = new_dim.into(); 
 
             let (new_swpchain, new_imgs) = vk.swapchain.clone().unwrap()
                 .recreate(vulkano::swapchain::SwapchainCreateInfo {
