@@ -56,14 +56,15 @@ pub mod fs {
             layout(location = 0) in vec3 pos;
 
             layout(push_constant) uniform PushConstantData {
-                float time;
-                vec2 cpos;
-                vec2 ires;
+                highp float time;
+                highp vec2 cpos;
+                highp vec2 ires;
+                highp float zoom;
             } pc;
 
             float mandelbrot(vec2 c) {
-                vec2 z = vec2(0.0, 0.0);
-                float i;
+                highp vec2 z = vec2(0.0, 0.0);
+                highp float i;
 
                 for (i = 0.0; i < 1.0; i += 0.01) {
                     z = vec2(
@@ -80,20 +81,18 @@ pub mod fs {
             }
 
             void main() {
-                // float zoom = pc.time;
-                float zoom = -1.0;
-
-                float i = 0.0;
+                highp float i = 0.0;
                 float num_samples = 2;
-                for (int s = 0; s < num_samples; ++s) {
-                    vec2 jitter = vec2(float(s % 2), float (2 / 2)) / float(num_samples);
-                    vec2 samplePos = pos.xy + jitter / pc.ires - pc.cpos;
+
+                // for (int s = 0; s < num_samples; ++s) {
+                    highp vec2 jitter = vec2(1, 1);
+                    highp vec2 samplePos = pos.xy * pc.zoom + jitter / pc.ires - pc.cpos;
                     samplePos.y *= 1.0 / (pc.ires.x / pc.ires.y);
 
                     i += mandelbrot(samplePos);
-                }
+                // }
                 
-                float avgI = i / float(num_samples);
+                highp float avgI = i;
 
                 f_color = vec4(vec2(avgI), sin(pc.time), 1.0);
             }
@@ -109,6 +108,7 @@ pub static FRAGMENT_PUSH_CONSTANTS: Lazy<Mutex<fs::PushConstantData>> = Lazy::ne
             time: 0.0.into(),
             cpos: [0.0, 0.0],
             ires: [800.0, 800.0],
+            zoom: 1.0,
         }
     )
 });

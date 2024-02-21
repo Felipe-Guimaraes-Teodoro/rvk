@@ -28,7 +28,7 @@ pub fn run() {
     let mut pr = VkPresenter::new(&mut vk, window.clone());
     let mut frame_id = 0;
 
-    let mut bool_key = [false; 4];
+    let mut bool_key = [false; 6];
 
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -57,6 +57,12 @@ pub fn run() {
                         if virtual_keycode == VirtualKeyCode::D {
                             bool_key[3] = true;
                         }
+                        if virtual_keycode == VirtualKeyCode::I {
+                            bool_key[4] = true;
+                        }
+                        if virtual_keycode == VirtualKeyCode::K {
+                            bool_key[5] = true;
+                        }
                     },
 
                     ElementState::Released => {
@@ -72,6 +78,12 @@ pub fn run() {
                         if virtual_keycode == VirtualKeyCode::D {
                             bool_key[3] = false;
                         }
+                        if virtual_keycode == VirtualKeyCode::I {
+                            bool_key[4] = false;
+                        }
+                        if virtual_keycode == VirtualKeyCode::K {
+                            bool_key[5] = false;
+                        }
                     }
                 }
             }
@@ -86,17 +98,25 @@ pub fn run() {
             Event::MainEventsCleared => {
                 let then = std::time::Instant::now();
 
+                let zoom = FRAGMENT_PUSH_CONSTANTS.lock().unwrap().zoom;
+
                 if bool_key[0] {
-                    FRAGMENT_PUSH_CONSTANTS.lock().unwrap().cpos[1] += 0.001;
+                    FRAGMENT_PUSH_CONSTANTS.lock().unwrap().cpos[1] += 0.001 * zoom;
                 }
                 if bool_key[1] {
-                    FRAGMENT_PUSH_CONSTANTS.lock().unwrap().cpos[0] += 0.001;
+                    FRAGMENT_PUSH_CONSTANTS.lock().unwrap().cpos[0] += 0.001 * zoom;
                 }
                 if bool_key[2] {
-                    FRAGMENT_PUSH_CONSTANTS.lock().unwrap().cpos[1] -= 0.001;
+                    FRAGMENT_PUSH_CONSTANTS.lock().unwrap().cpos[1] -= 0.001 * zoom;
                 }
                 if bool_key[3] {
-                    FRAGMENT_PUSH_CONSTANTS.lock().unwrap().cpos[0] -= 0.001;
+                    FRAGMENT_PUSH_CONSTANTS.lock().unwrap().cpos[0] -= 0.001 * zoom;
+                }
+                if bool_key[4] {
+                    FRAGMENT_PUSH_CONSTANTS.lock().unwrap().zoom /= 0.999;
+                }
+                if bool_key[5] {
+                    FRAGMENT_PUSH_CONSTANTS.lock().unwrap().zoom /= 1.01;
                 }
 
                 pr.if_recreate_swapchain(window.clone(), &mut vk);
