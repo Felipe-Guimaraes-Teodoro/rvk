@@ -19,7 +19,7 @@ impl vk_utils::Vk {
             <T as Iterator>::Item: Send  
     {
         Buffer::from_iter(
-            self.memory_allocator.clone(),
+            self.mem_allocators.memory_allocator.clone(),
             BufferCreateInfo {
                 usage: BufferUsage::TRANSFER_DST,
                 ..Default::default()
@@ -36,7 +36,7 @@ impl vk_utils::Vk {
     pub fn vertex_buffer(&self, vec: Vec<crate::vk_pipeline::FVertex3d>)
     -> vulkano::buffer::Subbuffer<[crate::vk_pipeline::FVertex3d]> {
         Buffer::from_iter(
-            self.memory_allocator.clone(),
+            self.mem_allocators.memory_allocator.clone(),
             BufferCreateInfo {
                 usage: BufferUsage::VERTEX_BUFFER,
                 ..Default::default()
@@ -53,7 +53,7 @@ impl vk_utils::Vk {
 
     pub fn image(&self, dim: [u32; 3]) -> std::sync::Arc<Image>  {
         Image::new(
-            self.memory_allocator.clone(),
+            self.mem_allocators.memory_allocator.clone(),
             ImageCreateInfo {
                 image_type: vulkano::image::ImageType::Dim2d,
                 format: Format::R8G8B8A8_UNORM,

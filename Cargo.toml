@@ -5,6 +5,7 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+
 [dependencies]
 bytemuck = "1.14.1"
 image = "0.24.8"
@@ -13,3 +14,8 @@ threadpool = "1.8.1"
 vulkano = "0.34.1"
 vulkano-shaders = "0.34.0"
 winit = "0.28.0"
+
+# android-activity = { version = "0.4.3", features = ["native-activity"] }
+
+# [patch.crates-io]
+# android-activity = "0.4.3"

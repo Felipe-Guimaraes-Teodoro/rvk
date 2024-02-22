@@ -20,15 +20,17 @@ use crate::vk_present::VkPresenter;
 use crate::vk_present::FRAGMENT_PUSH_CONSTANTS;
 pub fn run() {
     let event_loop = EventLoop::new();
-    let mut vk = crate::vk_utils::Vk::new(&event_loop);
+    let mut vk = Arc::new(Mutex::new(crate::vk_utils::Vk::new(&event_loop)));
 
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap()); 
     window.set_title("VULKAN");
 
-    let mut pr = VkPresenter::new(&mut vk, window.clone());
+    let mut pr = Arc::new(Mutex::new(VkPresenter::new(&mut vk.clone().lock().unwrap(), window.clone())));
     let mut frame_id = 0;
 
     let mut bool_key = [false; 6];
+
+    let pool = threadpool::ThreadPool::new(12);
 
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -92,12 +94,13 @@ pub fn run() {
                 event: WindowEvent::Resized(_),
                 ..
             } => {
-                pr.window_resized = true;
+                pr.clone().lock().unwrap().window_resized = true;
             },
 
             Event::MainEventsCleared => {
                 let then = std::time::Instant::now();
 
+                pool.execute(move || {
                 let zoom = FRAGMENT_PUSH_CONSTANTS.lock().unwrap().zoom;
 
                 if bool_key[0] {
@@ -118,13 +121,13 @@ pub fn run() {
                 if bool_key[5] {
                     FRAGMENT_PUSH_CONSTANTS.lock().unwrap().zoom /= 1.01;
                 }
-
-                pr.if_recreate_swapchain(window.clone(), &mut vk);
-                pr.update(&mut vk);
+                });
+                pr.clone().lock().unwrap().if_recreate_swapchain(window.clone(), &mut vk.clone().lock().unwrap());
+                pr.clone().lock().unwrap().update(&mut vk.clone().lock().unwrap());
                 *crate::vk_present::FRAGMENT_PUSH_CONSTANTS.lock().unwrap().time += 0.001;
-                pr.present(&mut vk);
+                pr.clone().lock().unwrap().present(&mut vk.clone().lock().unwrap());
 
-                // println!("MAIN: vk_present @ MainEventsCleared cleared within {:?}", then.elapsed());
+                println!("MAIN: vk_present @ MainEventsCleared cleared within {:?}", then.elapsed());
                 frame_id += 1;
             },
 

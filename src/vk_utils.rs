@@ -25,15 +25,20 @@ use once_cell::sync::Lazy;
 // issues: vk requires event loopto be initialized; so either make it so tgat vk doesnt need event
 // loop or make event_loop global aswell, which also comes with it s own problems...
 
+pub struct VkMemAllocators {
+    pub memory_allocator: Arc<GenericMemoryAllocator<FreeListAllocator>>,
+    pub command_buffer_allocator: StandardCommandBufferAllocator,
+    pub descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+}
+
 pub struct Vk {
     pub library: Arc<VulkanLibrary>,
     pub physical_device: Arc<PhysicalDevice>,
     pub device: Arc<Device>, 
     pub queue: Arc<Queue>,
     pub instance: Arc<Instance>,
-    pub memory_allocator: Arc<GenericMemoryAllocator<FreeListAllocator>>,
-    pub command_buffer_allocator: StandardCommandBufferAllocator,
-    pub descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+
+    pub mem_allocators: Arc<VkMemAllocators>,
 
     pub swapchain: Option<Arc<vulkano::swapchain::Swapchain>>,
     pub images: Option<Vec<Arc<vulkano::image::Image>>>,
@@ -45,7 +50,6 @@ impl Vk {
     pub fn new(event_loop: &winit::event_loop::EventLoop<()>) -> Self {
         // Initialization // 
         let library = VulkanLibrary::new().expect("no local Vulkan library/DLL");
-
         let req_extensions = Surface::required_extensions(&event_loop);
         let instance = Instance::new(
             library.clone(), 
@@ -92,8 +96,6 @@ impl Vk {
 
         let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
-        // commands
-
         let command_buffer_allocator = StandardCommandBufferAllocator::new(
             device.clone(),
             StandardCommandBufferAllocatorCreateInfo::default(),
@@ -102,15 +104,20 @@ impl Vk {
         let descriptor_set_allocator =
             Arc::new(StandardDescriptorSetAllocator::new(device.clone(), Default::default()));
 
+
+        let mem_allocators= Arc::new(VkMemAllocators {
+            command_buffer_allocator,
+            memory_allocator,
+            descriptor_set_allocator,
+        });
+
         Self {
             library,
             device,
             physical_device,
             queue,
             instance,
-            memory_allocator,
-            command_buffer_allocator,
-            descriptor_set_allocator,
+            mem_allocators,
             resolution: [1024.0, 1024.0],
 
             swapchain: None, // will be initialized later on

@@ -149,7 +149,7 @@ impl Vk {
             .iter()
             .map(|framebuffer| {
                 let mut builder = AutoCommandBufferBuilder::primary(
-                    &self.command_buffer_allocator,
+                    &self.mem_allocators.command_buffer_allocator,
                     self.queue.queue_family_index(),
                     CommandBufferUsage::MultipleSubmit,
                 )
