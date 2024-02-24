@@ -19,6 +19,7 @@ mod vk_present;
 mod buffer;
 mod vk_pipeline;
 mod event_loop;
+mod camera;
 
 use crate::vk_pipeline::Pipeline;
 
@@ -26,7 +27,6 @@ use crate::vk_pipeline::Pipeline;
 
 fn main() {
     // Initialization // 
-
     event_loop::run();
 }
 

@@ -17,13 +17,18 @@ use vulkano::swapchain::Surface;
 use vulkano::image::ImageUsage;
 use vulkano::swapchain::{Swapchain, SwapchainCreateInfo};
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use once_cell::sync::Lazy;
 
 // todo: make vk global
 // issues: vk requires event loopto be initialized; so either make it so tgat vk doesnt need event
 // loop or make event_loop global aswell, which also comes with it s own problems...
+//
+
+pub static VK: Lazy<Arc<Mutex<Vk>>> = Lazy::new( || {
+    Vk::new().into();
+});
 
 pub struct VkMemAllocators {
     pub memory_allocator: Arc<GenericMemoryAllocator<FreeListAllocator>>,

@@ -14,6 +14,9 @@ use vulkano::swapchain::SwapchainPresentInfo;
 use vulkano::sync::{self, GpuFuture};
 use vulkano::sync::future::FenceSignalFuture;
 
+pub static EVENT_LOOP: Lazy<Arc<Mutex<EventLoop<()>>>> = Lazy::new(|| {
+       
+});
 
 use crate::vk_pipeline::vert;
 use crate::vk_present::{VkPresenter, VkView};
@@ -106,7 +109,6 @@ pub fn run() {
                 let vk_c = vk.clone();
                 let window_c = window.clone();
 
-                pool.execute(move || {
                 let zoom = FRAGMENT_PUSH_CONSTANTS.lock().unwrap().zoom;
 
                 if bool_key[0] {
@@ -127,16 +129,17 @@ pub fn run() {
                 if bool_key[5] {
                     FRAGMENT_PUSH_CONSTANTS.lock().unwrap().zoom /= 1.01;
                 }
+
                 view_c.clone().lock().unwrap().if_recreate_swapchain(window_c.clone(), &mut vk_c.clone().lock().unwrap());
                 view_c.clone().lock().unwrap().update(&mut vk_c.clone().lock().unwrap());
                 *crate::vk_present::FRAGMENT_PUSH_CONSTANTS.lock().unwrap().time += 0.001;
 
-                });
                 presenter.present(&mut vk.clone().lock().unwrap(), &view.clone().lock().unwrap());
                 // pr.clone().lock().unwrap().present(&mut vk.clone().lock().unwrap());
 
                 println!("MAIN: vk_present @ MainEventsCleared cleared within {:?}", then.elapsed());
                 frame_id += 1;
+
             },
 
             _ => () 
