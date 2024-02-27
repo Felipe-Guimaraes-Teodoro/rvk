@@ -14,9 +14,9 @@ use vulkano::swapchain::SwapchainPresentInfo;
 use vulkano::sync::{self, GpuFuture};
 use vulkano::sync::future::FenceSignalFuture;
 
-pub static EVENT_LOOP: Lazy<Arc<Mutex<EventLoop<()>>>> = Lazy::new(|| {
-       
-});
+// pub static EVENT_LOOP: Lazy<Arc<Mutex<EventLoop<()>>>> = Lazy::new(|| {
+//     EventLoop::new()       
+// });
 
 use crate::vk_pipeline::vert;
 use crate::vk_present::{VkPresenter, VkView};

@@ -26,9 +26,9 @@ use once_cell::sync::Lazy;
 // loop or make event_loop global aswell, which also comes with it s own problems...
 //
 
-pub static VK: Lazy<Arc<Mutex<Vk>>> = Lazy::new( || {
-    Vk::new().into();
-});
+// pub static VK: Lazy<Arc<Mutex<Vk>>> = Lazy::new( || {
+//     Vk::new().into();
+// });
 
 pub struct VkMemAllocators {
     pub memory_allocator: Arc<GenericMemoryAllocator<FreeListAllocator>>,
